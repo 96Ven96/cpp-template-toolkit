@@ -96,7 +96,7 @@ of boilerplate that is otherwise rewritten by hand in every project.
 
 ## File overview
 
-The repository is split into eight focused headers plus one umbrella file
+The repository is split into nine focused headers plus one umbrella file
 that includes them all for backward compatibility.
 
 The "Qt required?" column tells you at a glance which headers you can pull
@@ -109,6 +109,7 @@ into a non-Qt project:
 | `function_helper.h` | `FunctionHelperNs` | No |
 | `constexpr_helper.h` | `ConstexprHelperNs` | No |
 | `types_helper.h` | `TypesHelperNs` | No |
+| `enum_flag.h` | `EnumFlagNs` | No |
 | `concepts_qt.h` | `QtConceptNs_` | Yes |
 | `conversion_types.h` | `ConversionTypesNs` | Yes |
 | `qt_support_helper.h` | `QtSupportHelperNs` | Yes |
@@ -166,6 +167,17 @@ Contains: `check_bitwise_unique`, `areEqualEnum`, `bitwiseOnEnum` (with
 `computeContiguousRanges`, `equalizeDimension` /
 `equalizeDimensions`.
 
+### `enum_flag.h` — namespace `EnumFlagNs`
+
+Type-safe bitset keyed by an enum (C++20+). `EnumFlag<E>` wraps a
+`std::bitset` whose bits are addressed by enum values, with full
+bit-wise operator support (`|`, `&`, `^`, `~`, plus the compound
+variants), a `consteval` factory `make_or_consteval` for compile-time
+construction, and the usual `test` / `set` / `reset` / `count` /
+`mask` accessors. Pairs naturally with
+`TypesHelperNs::check_bitwise_unique` to enforce single-bit enum
+values at the declaration site.
+
 ### `conversion_types.h` — namespace `ConversionTypesNs`
 
 Conversions between Qt, STL and `QVariant`.
@@ -193,7 +205,7 @@ The largest module, focused on `Q_PROPERTY` ergonomics.
 - The legacy `setValue` overloads are kept with `[[deprecated]]` for
   migration.
 
-### `templatedefines.h`
+### `template_defines.h`
 
 Umbrella include that pulls in every module above. Existing code that
 references this single header continues to compile unchanged.
@@ -232,6 +244,22 @@ static_assert(TypesHelperNs::check_bitwise_unique_v<
     Perm, Perm::Read, Perm::Write, Perm::Exec>);
 ```
 
+**Type-safe enum bitset**
+
+```cpp
+using EnumFlagNs::EnumFlag;
+
+constexpr auto rwAll =
+    EnumFlag<Perm>::make_or_consteval(Perm::Read, Perm::Write, Perm::Exec);
+
+EnumFlag<Perm> f;
+f |= Perm::Read;
+f |= Perm::Write;
+if (f.contains(Perm::Read)) { /* ... */ }
+auto common = f & rwAll;     // intersection
+auto missing = ~f;            // complement (relative to UnderT's full mask)
+```
+
 **Generic `QVariant` round-trip**
 
 ```cpp
@@ -257,7 +285,7 @@ No build system is needed; drop the headers into your include path.
 
 ## Status
 
-This started as a single growing header (`templatedefines.h`) used in a
+This started as a single growing header (`template_defines.h`) used in a
 real C++/Qt project at work. It has been **rewritten and reorganised**
 into the current form so that the Qt-free and Qt-aware parts are cleanly
 separated, the patterns are easy to read, easy to reuse, and easy to

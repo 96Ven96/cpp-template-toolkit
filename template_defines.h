@@ -1,9 +1,10 @@
 #pragma once
 
-// Master include — pulls in every sub-module.
-// Existing code that includes <templatedefines.h> will continue to compile.
+// Master include — pulls in every sub-module of the toolkit.
 //
-// New code should include only the headers it actually needs.
+// New code should include only the specific headers it actually needs;
+// this umbrella is provided for convenience and for projects migrating
+// from a single-header layout.
 
 #include "concepts_std.h"
 #include "concepts_qt.h"
@@ -13,3 +14,4 @@
 #include "types_helper.h"
 #include "conversion_types.h"
 #include "qt_support_helper.h"
+#include "enum_flag.h"
