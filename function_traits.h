@@ -44,6 +44,7 @@ namespace FunctionTraitsNs {
         // Free function pointer
         template <typename R, typename... Args>
         struct function_signature<R(*)(Args...)> {
+            using class_type  = void;
             using return_type = R;
             using input_type  = std::tuple<Args...>;
             static constexpr std::size_t arity = sizeof...(Args);
@@ -51,6 +52,7 @@ namespace FunctionTraitsNs {
 
         template <typename R, typename... Args>
         struct function_signature<R(*)(Args...) noexcept> {
+            using class_type  = void;
             using return_type = R;
             using input_type  = std::tuple<Args...>;
             static constexpr std::size_t arity = sizeof...(Args);
@@ -59,6 +61,7 @@ namespace FunctionTraitsNs {
         // std::function
         template <typename R, typename... Args>
         struct function_signature<std::function<R(Args...)>> {
+            using class_type  = void;
             using return_type = R;
             using input_type  = std::tuple<Args...>;
             static constexpr std::size_t arity = sizeof...(Args);
@@ -69,7 +72,8 @@ namespace FunctionTraitsNs {
 #define FTRAITS_MEMBER_SIG(cv, ref, noex)                                     \
         template <typename C, typename R, typename... Args>                   \
         struct function_signature<R(C::*)(Args...) cv ref noex> {             \
-            using return_type = R;                                             \
+            using class_type  = C;                                            \
+            using return_type = R;                                            \
             using input_type  = std::tuple<Args...>;                          \
             static constexpr std::size_t arity = sizeof...(Args);             \
         };
@@ -98,6 +102,10 @@ namespace FunctionTraitsNs {
 
         // --- Convenience aliases ---
 
+        /// @brief Class of callable F.
+        template <typename F>
+        using class_t = typename function_signature<std::decay_t<F>>::class_type;
+
         /// @brief Argument tuple of callable F.
         template <typename F>
         using input_t = typename function_signature<std::decay_t<F>>::input_type;
@@ -110,6 +118,10 @@ namespace FunctionTraitsNs {
         template <typename F>
         constexpr std::size_t arity_v = function_signature<std::decay_t<F>>::arity;
 
+        /// @brief Class of a member function pointer passed as a value.
+        template <auto MemberFnPtr>
+        using member_class_t = class_t<decltype(MemberFnPtr)>;
+        
         /// @brief Argument tuple of a member function pointer passed as a value.
         template <auto MemberFnPtr>
         using member_input_t = input_t<decltype(MemberFnPtr)>;
