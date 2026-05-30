@@ -1,9 +1,11 @@
 #pragma once
+#include <array>
 #include <type_traits>
 #include <iterator>
 
 #include <QString>
 #include <QVariant>
+#include <QAbstractItemModel>   // for DeriveFromQAbstractItemModel + Qt::UserRole
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #  include <QtNumeric>
 #else
@@ -14,6 +16,8 @@
 #include <concepts>
 #include <string_view>
 #include "concepts_std.h"
+#include "constexpr_helper.h"  // for ConstexprHelperNs::constexprAllUnique
+#include "function_traits.h"   // for FunctionTraitsNs::is_std_array_v
 
 /**
  * @brief Concepts that require Qt headers.
@@ -112,6 +116,103 @@ namespace QtConceptNs_ {
             return true;
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Qt model role validation
+    // -------------------------------------------------------------------------
+
+    /**
+     * @brief Returns @c true if @p val is a valid custom model role
+     *        (i.e. strictly greater than @c Qt::UserRole).
+     *
+     * Qt reserves all roles from 0 through @c Qt::UserRole (256) for its
+     * own use. Custom models must use values above that threshold.
+     *
+     * @tparam T Any integral type (@c int, @c qint32, @c std::size_t, …).
+     */
+    template <typename T>
+        requires (std::is_integral_v<T>)
+    [[nodiscard]] consteval bool IsValidRole(T val) noexcept {
+        return val > static_cast<T>(Qt::UserRole);
+    }
+
+    /**
+     * @brief Enum overload of IsValidRole — checks via the underlying integer.
+     *
+     * Allows scoped-enum role constants to be validated without an explicit
+     * cast at the call site.
+     */
+    template <typename T>
+        requires (std::is_enum_v<T>)
+    [[nodiscard]] consteval bool IsValidRole(T val) noexcept {
+        using UnderT = std::underlying_type_t<T>;
+        return IsValidRole(static_cast<UnderT>(val));
+    }
+
+    /**
+     * @brief Returns @c true if every element of @p vals is unique (O(N²)).
+     *
+     * Intended for compile-time validation of small arrays. Role lists
+     * rarely exceed a few dozen entries, so the quadratic cost is
+     * irrelevant in practice.
+     *
+     * @tparam T Element type — must support @c operator==.
+     * @tparam N Compile-time array size.
+     */
+    template <typename T, std::size_t N>
+    [[nodiscard]] consteval bool AreUniques(const std::array<T, N>& vals) noexcept {
+        return ConstexprHelperNs::constexprAllUnique(vals);
+    }
+
+    /**
+     * @brief Returns @c true if every element in @p vals is a valid, unique
+     *        custom model role.
+     *
+     * Combines @ref IsValidRole (each value > @c Qt::UserRole) with
+     * @ref AreUniques (no duplicate roles). Use this to guard the role
+     * array of a @c QAbstractItemModel subclass at compile time.
+     *
+     * @tparam T Integral or enum type.
+     * @tparam N Compile-time array size.
+     */
+    template <typename T, std::size_t N>
+    [[nodiscard]] consteval bool AreValidModelRole(const std::array<T, N>& vals) noexcept {
+        for (std::size_t i = 0; i < N; ++i)
+            if (!IsValidRole(vals[i])) return false;
+        return AreUniques(vals);
+    }
+
+    /**
+     * @brief Satisfied when @p ModelRoleList is a @c std::array whose
+     *        elements are all valid, unique custom model roles
+     *        (> @c Qt::UserRole).
+     *
+     * Typical use: enforce the role table of a @c QAbstractItemModel
+     * subclass at compile time.
+     *
+     * @code
+     *   enum class MyRole : int {
+     *       Name  = Qt::UserRole + 1,
+     *       Value = Qt::UserRole + 2,
+     *   };
+     *   static constexpr auto kRoles = std::array{MyRole::Name, MyRole::Value};
+     *   static_assert(QtConceptNs_::IsValidModelRoleList<kRoles>);
+     * @endcode
+     */
+    template <auto ModelRoleList>
+    concept IsValidModelRoleList =
+        FunctionTraitsNs::is_std_array_v<decltype(ModelRoleList)>
+        && AreValidModelRole(ModelRoleList);
+
+    /**
+     * @brief Satisfied when T is (or publicly derives from)
+     *        @c QAbstractItemModel.
+     *
+     * Use as a constraint on generic model parameters to ensure they
+     * expose the standard Qt item-model API.
+     */
+    template <typename T>
+    concept DeriveFromQAbstractItemModel = std::is_base_of_v<QAbstractItemModel, T>;
 
 } // namespace QtConceptNs_
 

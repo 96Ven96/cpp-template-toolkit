@@ -6,6 +6,7 @@
 #if __cplusplus >= 202002L
 #  include <string_view>
 #  include "concepts_std.h"
+#  include "function_traits.h"
 #endif
 
 /**
@@ -201,6 +202,91 @@ namespace ConstexprHelperNs {
     /// @brief Returns true if @p idx is a valid result from constexprIndexOf.
     [[nodiscard]] consteval bool hasFoundAnIndex(std::size_t idx) noexcept {
         return idx != (std::numeric_limits<std::size_t>::max)();
+    }
+
+    // -------------------------------------------------------------------------
+    // Constexpr min / max
+    // -------------------------------------------------------------------------
+
+    /**
+     * @brief Returns the minimum or maximum element of a non-empty array,
+     *        with the comparison direction selected at compile time.
+     *
+     * For enum types, comparison is performed on the underlying integer type
+     * via @c FunctionTraitsNs::get_convert_type_for_possible_enum_t; all other
+     * types are compared directly.  The sentinel initial value uses
+     * @c std::numeric_limits::lowest() (not @c min()) so the function is
+     * correct for both integer and floating-point underlying types.
+     *
+     * @tparam GetMin  @c true → return the minimum element;
+     *                 @c false → return the maximum element.
+     * @tparam T       Element type.  Must satisfy @c std::totally_ordered, or
+     *                 be an enum whose underlying type does.
+     * @tparam N       Array size; must be greater than zero.
+     *
+     * @code
+     *   constexpr std::array vals = {3, 1, 4, 1, 5};
+     *   static_assert(ConstexprHelperNs::constexprBound<true>(vals)  == 1); // min
+     *   static_assert(ConstexprHelperNs::constexprBound<false>(vals) == 5); // max
+     * @endcode
+     */
+    template <bool GetMin, typename T, std::size_t N>
+    [[nodiscard]] constexpr T constexprBound(const std::array<T, N>& vals) noexcept {
+        static_assert(N > 0, "Array must be non-empty");
+        using UnderT = FunctionTraitsNs::get_convert_type_for_possible_enum_t<T>;
+        static_assert(std::totally_ordered<UnderT>, "T must be a totally ordered type");
+        UnderT result = []() -> UnderT {
+            if constexpr (GetMin)
+                return (std::numeric_limits<UnderT>::max)();
+            else
+                return (std::numeric_limits<UnderT>::lowest)();
+        }();
+        for (const T & ele : vals) {
+            const UnderT converted = static_cast<UnderT>(ele);
+            if constexpr (GetMin) {
+                if (converted < result) result = converted;
+            } else {
+                if (converted > result) result = converted;
+            }
+        }
+        return static_cast<T>(result);
+    }
+
+    /// @brief Minimum element of @p vals. Shorthand for @c constexprBound<true>.
+    template <typename T, std::size_t N>
+    [[nodiscard]] constexpr T constexprMin(const std::array<T, N> & vals) noexcept
+    { return constexprBound<true>(vals); }
+
+    /// @brief Maximum element of @p vals. Shorthand for @c constexprBound<false>.
+    template <typename T, std::size_t N>
+    [[nodiscard]] constexpr T constexprMax(const std::array<T, N> & vals) noexcept
+    { return constexprBound<false>(vals); }
+
+    // -------------------------------------------------------------------------
+    // Uniqueness check
+    // -------------------------------------------------------------------------
+
+    /**
+     * @brief Returns true if all elements of @p arr are distinct (O(N²)).
+     *
+     * Suitable for compile-time validation of small arrays (e.g. enum key
+     * lists, model role tables).  The quadratic cost is irrelevant in practice
+     * because the arrays involved rarely exceed a few dozen entries.
+     *
+     * @tparam T  Element type — must support @c operator==.
+     * @tparam N  Compile-time array size.
+     *
+     * @code
+     *   constexpr std::array vals = {1, 2, 3};
+     *   static_assert(ConstexprHelperNs::constexprAllUnique(vals));
+     * @endcode
+     */
+    template <typename T, std::size_t N>
+    [[nodiscard]] consteval bool constexprAllUnique(const std::array<T, N>& arr) noexcept {
+        for (std::size_t i = 0; i < N; ++i)
+            for (std::size_t j = i + 1; j < N; ++j)
+                if (arr[i] == arr[j]) return false;
+        return true;
     }
 
 #endif // __cplusplus >= 202002L
