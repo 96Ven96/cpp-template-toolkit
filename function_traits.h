@@ -237,6 +237,35 @@ namespace FunctionTraitsNs {
     using underlying_or_self_t = typename underlying_or_self_impl<T>::type;
 
     // =========================================================================
+    // Array detection
+    // =========================================================================
+
+    /**
+     * @brief Detects whether T (cvref-stripped) is a @c std::array<E,N>
+     *        specialisation for any element type E and any compile-time size N.
+     *
+     * cv-qualifiers and references are stripped before the check via
+     * @c remove_cvref_t, so @c const std::array<int,3>& satisfies the
+     * trait just as well as the plain @c std::array<int,3>.
+     *
+     * Use the companion variable template @c is_std_array_v as the
+     * everyday shorthand.
+     *
+     * @code
+     *   static_assert( FunctionTraitsNs::is_std_array_v<std::array<int, 4>>);
+     *   static_assert(!FunctionTraitsNs::is_std_array_v<std::vector<int>>);
+     *   static_assert( FunctionTraitsNs::is_std_array_v<const std::array<float, 2>&>);
+     * @endcode
+     */
+    template <typename T> struct is_std_array : std::false_type {};
+    template <typename T, std::size_t N>
+    struct is_std_array<std::array<T, N>> : std::true_type {};    ///< Partial specialisation — matches any std::array<E,N>.
+
+    /// @brief Variable-template shorthand: @c true iff T (cvref-stripped) is a std::array.
+    template <typename T>
+    inline constexpr bool is_std_array_v = is_std_array<remove_cvref_t<T>>::value;
+
+    // =========================================================================
     // Char-array detection
     // =========================================================================
 
