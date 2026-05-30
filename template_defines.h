@@ -15,3 +15,4 @@
 #include "conversion_types.h"
 #include "qt_support_helper.h"
 #include "enum_flag.h"
+#include "enum_keyed_tuple.h"
