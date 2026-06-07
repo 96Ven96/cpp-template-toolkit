@@ -15,6 +15,11 @@
 #endif
 
 #include "conversion_types.h"
+#include "function_traits.h"   // CallableFn::input_t — type a slot from a signal's signature
+#include "function_helper.h"   // makeTypedCallable — materialise that typed slot
+
+#include <memory>              // std::shared_ptr (self-owning connection bundle)
+#include <QList>
 
 /**
  * @brief Qt Q_PROPERTY helpers: type aliases for getters/setters/signals,
@@ -323,6 +328,109 @@ namespace QtSupportHelperNs {
         if (enable) QObject::connect(sender, signal, receiver, slot, type);
         else        QObject::disconnect(sender, signal, receiver, slot);
     }
+
+    // =========================================================================
+    // EphemeralConnections — a self-owning, single-shot group of connections
+    // =========================================================================
+
+    /**
+     * @brief A group of QObject connections that are all torn down together, exactly once.
+     *
+     * Generalises the "single-shot connection" pattern: you arm an @e action plus one or
+     * more @e terminators, and the first terminator whose predicate holds tears the whole
+     * group down (running an optional finaliser first). It is the abstraction behind wiring
+     * such as "send a value, then disconnect when it is confirmed, or when sending fails,
+     * or when it is changed again".
+     *
+     * @par Self-owning lifetime
+     * The connection handles live in a std::shared_ptr bundle that every terminator slot
+     * captures. The group therefore stays alive as long as any of its connections is live,
+     * and frees itself the instant it is dismissed — no manual bookkeeping, no dangling.
+     * Lifetime is "fire and forget": the destructor does @b not disconnect; the group lives
+     * until a terminator (or an explicit dismiss()) tears it down. Create it, arm it, move on.
+     *
+     * @note Designed for single-threaded (per-QObject-thread) use; the bundle is not guarded.
+     *       Pass the receiver/context object so the connection also auto-disconnects if that
+     *       object is destroyed (standard Qt context semantics).
+     *
+     * @code
+     *   QtSupportHelperNs::EphemeralConnections{}
+     *       .until(device, &Device::valueConfirmed, this,
+     *              [expected](int v){ return v == expected; },   // predicate
+     *              [this]{ emit committed(); })                   // finaliser
+     *       .until(bus, &Bus::sendFailed, this,
+     *              [id](quint32 r){ return r == id; }, []{})
+     *       .until(device, &Device::valueChanged, device,
+     *              []{ return true; }, []{});                     // unconditional reset
+     * @endcode
+     */
+    class EphemeralConnections {
+    public:
+        EphemeralConnections()
+            // Shared bundle: every terminator slot captures a copy of it, so the group's
+            // connection handles outlive this object (fire-and-forget) and are freed only
+            // when the group is torn down.
+            : bundle_{std::make_shared<QList<QMetaObject::Connection>>()} {}
+
+        /**
+         * @brief Arms a plain "action" connection, kept alive with the group.
+         *
+         * Not a terminator: it never tears the group down. Use it for the wiring that should
+         * live exactly as long as the group (it is removed when the group is dismissed).
+         * @return *this, for fluent chaining.
+         */
+        template <typename Sender, typename Signal, typename Receiver, typename Slot>
+        EphemeralConnections& on(Sender* sender, Signal signal, Receiver* receiver, Slot slot) {
+            // Plain connection: its handle joins the bundle so it is removed together with the
+            // group, but it never triggers teardown by itself.
+            bundle_->append(QObject::connect(sender, signal, receiver, std::move(slot)));
+            return *this;
+        }
+
+        /**
+         * @brief Arms a "terminator".
+         *
+         * When @p signal fires, @p predicate is called with the signal's arguments; if it
+         * returns true, @p onTrigger is called with the same arguments and then the @e whole
+         * group is disconnected. For a parameterless signal, @p predicate and @p onTrigger
+         * are called with no arguments.
+         *
+         * The slot is materialised with the signal's exact parameter types (via
+         * FunctionHelperNs::makeTypedCallable over CallableFn::input_t) because Qt's
+         * new-style connect cannot bind a generic lambda.
+         * @return *this, for fluent chaining.
+         */
+        template <typename Sender, typename Signal, typename Receiver,
+                  typename Predicate, typename OnTrigger>
+        EphemeralConnections& until(Sender* sender, Signal signal, Receiver* receiver,
+                                    Predicate predicate, OnTrigger onTrigger) {
+            auto bundle = bundle_;   // copy the shared_ptr → the slot co-owns the group's lifetime
+            using SignalArgs = FunctionTraitsNs::CallableFn::input_t<Signal>;  // std::tuple<Args...>
+            auto slot = FunctionHelperNs::makeTypedCallable<SignalArgs>(
+                [bundle, predicate = std::move(predicate), onTrigger = std::move(onTrigger)]
+                (auto&&... args) {
+                    if (!predicate(args...)) { return; }   // not the awaited condition → keep waiting
+                    onTrigger(args...);                    // run the finaliser
+                    dismissBundle(bundle);             // tear the whole group down (incl. this one)
+                });
+            bundle_->append(QObject::connect(sender, signal, receiver, std::move(slot)));
+            return *this;
+        }
+
+        /// @brief Disconnects every connection in the group immediately.
+        void dismiss() { dismissBundle(bundle_); }
+
+    private:
+        static void dismissBundle(const std::shared_ptr<QList<QMetaObject::Connection>>& bundle) {
+            // Disconnecting the very connection whose slot is running right now is safe in Qt
+            // (cleanup is deferred). Once every slot is gone, their captured shared_ptr copies
+            // drop and the bundle frees itself — no manual lifetime management.
+            for (const auto& connection : *bundle) { QObject::disconnect(connection); }
+            bundle->clear();
+        }
+
+        std::shared_ptr<QList<QMetaObject::Connection>> bundle_;
+    };
 
     // =========================================================================
     // Deprecated set_value overloads (kept for migration)

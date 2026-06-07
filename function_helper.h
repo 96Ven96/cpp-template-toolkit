@@ -73,6 +73,25 @@ namespace FunctionHelperNs {
             (f(std::get<I>(std::forward<Tuple>(t))), ...);
         }
 
+        // Materialises a callable whose parameters are exactly Args..., forwarding to a
+        // generic body. The Args... are deduced from the std::tuple via partial
+        // specialisation (you cannot deduce a pack from a type alias inside a function).
+        template <typename ArgsTuple>
+        struct typed_callable_factory;
+
+        template <typename... Args>
+        struct typed_callable_factory<std::tuple<Args...>> {
+            template <typename Body>
+            static auto make(Body body) {
+                // The returned lambda exposes CONCRETE parameters (Args...), so an API that
+                // inspects a functor's signature (e.g. Qt's new-style connect) accepts it;
+                // inside, it just forwards those typed arguments to the caller's generic body.
+                return [body = std::move(body)](Args... args) -> decltype(auto) {
+                    return (body(args...));   // parens: defensive decltype(auto) ref-preservation
+                };
+            }
+        };
+
     } // namespace detail
 
     /**
@@ -98,6 +117,30 @@ namespace FunctionHelperNs {
         detail::tuple_for_each_impl(
             std::forward<Tuple>(t), std::forward<Func>(f),
             std::make_index_sequence<N>{});
+    }
+
+    /**
+     * @brief Builds a callable with concrete parameter types taken from a tuple type.
+     *
+     * Given @p ArgsTuple == std::tuple<Args...>, returns a callable taking exactly
+     * (Args...) that forwards to the generic @p body. Useful when an API needs a
+     * concretely-typed functor but you only have a generic handler — most notably Qt's
+     * new-style connect(), which cannot bind a generic `[](auto&&...)` lambda because it
+     * cannot deduce its arity.
+     *
+     * Pairs naturally with CallableFn::input_t / member_input_t, which yield the argument
+     * tuple of a signal/slot.
+     *
+     * @code
+     *   using Args = FunctionTraitsNs::CallableFn::input_t<decltype(&Sender::valueChanged)>;
+     *   auto slot  = FunctionHelperNs::makeTypedCallable<Args>(
+     *                    [](auto&&... a){ /* handle a... */ });
+     *   QObject::connect(sender, &Sender::valueChanged, ctx, slot);
+     * @endcode
+     */
+    template <typename ArgsTuple, typename Body>
+    [[nodiscard]] inline auto makeTypedCallable(Body body) {
+        return detail::typed_callable_factory<ArgsTuple>::make(std::move(body));
     }
 
 } // namespace FunctionHelperNs
