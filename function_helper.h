@@ -134,7 +134,7 @@ namespace FunctionHelperNs {
      * @code
      *   using Args = FunctionTraitsNs::CallableFn::input_t<decltype(&Sender::valueChanged)>;
      *   auto slot  = FunctionHelperNs::makeTypedCallable<Args>(
-     *                    [](auto&&... a){ /* handle a... */ });
+     *                    [](auto&&... a){ // handle a... // });
      *   QObject::connect(sender, &Sender::valueChanged, ctx, slot);
      * @endcode
      */
